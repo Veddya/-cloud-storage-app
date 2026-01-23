@@ -134,20 +134,41 @@ def get_user_folders(username):
 def upload_file(username, file_data, filename):
     try:
         user_path = get_user_storage_path(username)
-        versions = get_file_versions(username, filename)
-        next_version = 1 if not versions else int(versions[0]["version"]) + 1
-        file_path = user_path / f"{filename}.v{next_version}"
-        file_path.write_bytes(file_data)
         
+        # Get current files to find next version
+        existing_versions = []
+        for file in user_path.glob(f"{filename}.v*"):
+            try:
+                version_num = int(file.stem.split('v')[-1])
+                existing_versions.append(version_num)
+            except:
+                pass
+        
+        next_version = max(existing_versions) + 1 if existing_versions else 1
+        file_path = user_path / f"{filename}.v{next_version}"
+        
+        # Write file
+        with open(file_path, 'wb') as f:
+            f.write(file_data)
+        
+        # Verify file was written
+        if not file_path.exists():
+            return None
+        
+        # Update user storage
         users = load_json(USERS_FILE)
         if username in users:
-            users[username]["storage_used"] = sum(f.stat().st_size for f in user_path.glob("*") if f.is_file())
+            total_size = 0
+            for f in user_path.glob("*"):
+                if f.is_file():
+                    total_size += f.stat().st_size
+            users[username]["storage_used"] = total_size
             save_json(USERS_FILE, users)
         
         log_activity(username, "UPLOAD", f"Uploaded {filename}")
         add_notification(username, "upload", "Upload", f"{filename} uploaded")
         return next_version
-    except:
+    except Exception as e:
         return None
 
 def get_file_versions(username, filename):
@@ -586,30 +607,54 @@ else:
                 st.caption(f"📄 {file.name} ({file.size / 1024:.1f}KB)")
                 total_size += file.size
             
-            st.caption(f"Total: {total_size / (1024*1024):.2f}MB")
+            st.caption(f"**Total: {total_size / (1024*1024):.2f}MB**")
             
             if st.button("⬆️ Upload All", type="primary", use_container_width=True):
-                with st.spinner("Uploading files..."):
-                    progress_bar = st.progress(0)
-                    for idx, file in enumerate(uploaded_files):
-                        result = upload_file(st.session_state.username, file.getvalue(), file.name)
-                        progress_bar.progress((idx + 1) / len(uploaded_files))
+                progress_placeholder = st.empty()
+                status_placeholder = st.empty()
                 
-                st.success(f"✅ Uploaded {len(uploaded_files)} file(s)!")
-                st.balloons()
-                st.rerun()
+                try:
+                    success_count = 0
+                    for idx, file in enumerate(uploaded_files):
+                        progress_placeholder.progress((idx / len(uploaded_files)))
+                        status_placeholder.write(f"⏳ Uploading: {file.name}...")
+                        
+                        result = upload_file(st.session_state.username, file.getvalue(), file.name)
+                        
+                        if result:
+                            success_count += 1
+                            status_placeholder.write(f"✅ {file.name} uploaded (v{result})")
+                        else:
+                            status_placeholder.write(f"❌ Failed to upload {file.name}")
+                    
+                    progress_placeholder.progress(1.0)
+                    
+                    if success_count == len(uploaded_files):
+                        status_placeholder.empty()
+                        st.success(f"✅ All {success_count} file(s) uploaded successfully!")
+                        st.balloons()
+                        import time
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning(f"⚠️ {success_count}/{len(uploaded_files)} files uploaded")
+                except Exception as e:
+                    st.error(f"❌ Upload error: {str(e)}")
         
         st.divider()
         st.subheader("📂 All Your Files")
         try:
             all_files = list_files(st.session_state.username)
             if all_files:
+                st.write(f"Total files: **{len(all_files)}**")
+                st.divider()
+                
                 for file in all_files:
                     with st.container(border=True):
-                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                        col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
                         with col1:
                             st.write(f"**{file['icon']} {file['filename']}**")
-                            st.caption(f"{file['size']/1024:.1f}KB | v{file['version']} | {file['modified'][:10]}")
+                            st.caption(f"📊 {file['size']/1024:.1f}KB | 📦 v{file['version']} | 📅 {file['modified'][:10]}")
                         with col2:
                             if st.button("⬇️", key=f"dl_all_{file['filename']}", help="Download"):
                                 data = download_file(st.session_state.username, file['filename'])
@@ -619,10 +664,15 @@ else:
                             if st.button("🔗", key=f"share_all_{file['filename']}", help="Share"):
                                 st.session_state[f"share_modal_{file['filename']}"] = True
                         with col4:
+                            if st.button("📋", key=f"ver_all_{file['filename']}", help="Versions"):
+                                st.session_state[f"ver_modal_{file['filename']}"] = not st.session_state.get(f"ver_modal_{file['filename']}", False)
+                        with col5:
                             if st.button("🗑️", key=f"del_all_{file['filename']}", help="Delete"):
                                 delete_file(st.session_state.username, file['filename'])
+                                st.success("File moved to trash!")
                                 st.rerun()
                         
+                        # Share modal
                         if st.session_state.get(f"share_modal_{file['filename']}", False):
                             st.divider()
                             st.write("**🔗 Share Options**")
@@ -630,22 +680,39 @@ else:
                             
                             with tab1:
                                 share_user = st.text_input("Username", key=f"su_{file['filename']}")
-                                if st.button("Share", key=f"sbtn_{file['filename']}"):
+                                if st.button("Share", key=f"sbtn_{file['filename']}", type="primary"):
                                     if share_user:
                                         share_file(st.session_state.username, file['filename'], share_user)
-                                        st.success("✅ Shared with user!")
+                                        st.success(f"✅ Shared with {share_user}!")
                             
                             with tab2:
                                 share_email = st.text_input("Email", key=f"se_{file['filename']}")
-                                share_msg = st.text_area("Message", key=f"sm_{file['filename']}", height=60)
-                                if st.button("📨 Send", key=f"sebtn_{file['filename']}"):
+                                share_msg = st.text_area("Message (optional)", key=f"sm_{file['filename']}", height=60)
+                                if st.button("📨 Send", key=f"sebtn_{file['filename']}", type="primary"):
                                     if share_email:
                                         share_link = f"https://clouddrive-pro.streamlit.app/shared?file={file['filename']}&from={st.session_state.username}"
                                         st.success(f"✅ Email sent to {share_email}!")
                                         st.code(share_link, language="text")
-                                        log_activity(st.session_state.username, "EMAIL_SHARE", f"Shared via email to {share_email}")
+                                        log_activity(st.session_state.username, "EMAIL_SHARE", f"Shared {file['filename']} via email")
+                        
+                        # Version modal
+                        if st.session_state.get(f"ver_modal_{file['filename']}", False):
+                            st.divider()
+                            st.write("**📦 File Versions**")
+                            versions = get_file_versions(st.session_state.username, file['filename'])
+                            for v in versions:
+                                vc1, vc2 = st.columns([3, 1])
+                                with vc1:
+                                    st.caption(f"v{v['version']} | {v['size']/1024:.1f}KB | {v['modified'][:10]}")
+                                with vc2:
+                                    if st.button("Restore", key=f"restore_all_{file['filename']}_v{v['version']}"):
+                                        data = download_file(st.session_state.username, file['filename'], int(v['version']))
+                                        if data:
+                                            upload_file(st.session_state.username, data, file['filename'])
+                                            st.success("Version restored!")
+                                            st.rerun()
             else:
-                st.info("📭 No files uploaded yet")
+                st.info("📭 No files uploaded yet. Upload some files above!")
         except Exception as e:
             st.info("📭 No files uploaded yet")
     
