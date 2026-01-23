@@ -329,15 +329,20 @@ else:
     
     if page == "📁 Files":
         st.title("📁 My Files")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Files", len(list_files(st.session_state.username)))
-        with c2:
-            st.metric("Used", f"{storage['used'] / (1024*1024):.1f}MB")
-        with c3:
-            st.metric("Free", f"{storage['remaining'] / (1024*1024*1024):.2f}GB")
-        with c4:
-            st.metric("Shared", len(get_shared_by_me(st.session_state.username)))
+        try:
+            files = list_files(st.session_state.username)
+            shared = get_shared_by_me(st.session_state.username)
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("Files", len(files))
+            with c2:
+                st.metric("Used", f"{storage['used'] / (1024*1024):.1f}MB")
+            with c3:
+                st.metric("Free", f"{storage['remaining'] / (1024*1024*1024):.2f}GB")
+            with c4:
+                st.metric("Shared", len(shared))
+        except Exception as e:
+            st.warning("Unable to load metrics")
         st.divider()
         
         c1, c2, c3 = st.columns([3, 1, 1])
@@ -566,16 +571,16 @@ else:
         with col1:
             st.subheader("Account")
             users = load_json(USERS_FILE)
-            user = users[st.session_state.username]
-            st.write(f"**User**: {st.session_state.username}")
-            st.write(f"**Email**: {user['email']}")
-            st.write(f"**Plan**: {user['plan']}")
-            st.write(f"**Since**: {user['created'][:10]}")
+            if st.session_state.username in users:
+                user = users[st.session_state.username]
+                st.write(f"**User**: {st.session_state.username}")
+                st.write(f"**Email**: {user.get('email', 'N/A')}")
+                st.write(f"**Plan**: {user.get('plan', 'N/A')}")
+                st.write(f"**Since**: {user.get('created', 'N/A')[:10]}")
         with col2:
             st.subheader("Preferences")
             st.selectbox("Theme", ["Light", "Dark"])
             st.checkbox("Notifications", value=True)
             st.checkbox("2FA")
             if st.button("Save", use_container_width=True):
-                st.success("✅ Saved!")   
-
+                st.success("✅ Saved!")"
