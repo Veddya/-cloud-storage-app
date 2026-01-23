@@ -581,52 +581,73 @@ else:
         
         if uploaded_files:
             st.subheader("📋 Files to Upload")
+            total_size = 0
             for file in uploaded_files:
                 st.caption(f"📄 {file.name} ({file.size / 1024:.1f}KB)")
+                total_size += file.size
+            
+            st.caption(f"Total: {total_size / (1024*1024):.2f}MB")
             
             if st.button("⬆️ Upload All", type="primary", use_container_width=True):
-                progress_bar = st.progress(0)
-                for idx, file in enumerate(uploaded_files):
-                    upload_file(st.session_state.username, file.getvalue(), file.name)
-                    progress_bar.progress((idx + 1) / len(uploaded_files))
+                with st.spinner("Uploading files..."):
+                    progress_bar = st.progress(0)
+                    for idx, file in enumerate(uploaded_files):
+                        result = upload_file(st.session_state.username, file.getvalue(), file.name)
+                        progress_bar.progress((idx + 1) / len(uploaded_files))
+                
                 st.success(f"✅ Uploaded {len(uploaded_files)} file(s)!")
                 st.balloons()
-                
-                st.divider()
-                st.subheader("📂 Recently Uploaded Files")
-                try:
-                    recent_files = list_files(st.session_state.username)[:len(uploaded_files)]
-                    for file in recent_files:
-                        with st.container(border=True):
-                            col1, col2, col3 = st.columns([3, 1, 1])
-                            with col1:
-                                st.write(f"**{file['icon']} {file['filename']}**")
-                                st.caption(f"{file['size']/1024:.1f}KB | v{file['version']}")
-                            with col2:
-                                if st.button("⬇️", key=f"dl_recent_{file['filename']}"):
-                                    data = download_file(st.session_state.username, file['filename'])
-                                    st.download_button("Download", data, file['filename'])
-                            with col3:
-                                if st.button("🔗", key=f"share_recent_{file['filename']}"):
-                                    st.session_state[f"show_email_share_{file['filename']}"] = True
+                st.rerun()
+        
+        st.divider()
+        st.subheader("📂 All Your Files")
+        try:
+            all_files = list_files(st.session_state.username)
+            if all_files:
+                for file in all_files:
+                    with st.container(border=True):
+                        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                        with col1:
+                            st.write(f"**{file['icon']} {file['filename']}**")
+                            st.caption(f"{file['size']/1024:.1f}KB | v{file['version']} | {file['modified'][:10]}")
+                        with col2:
+                            if st.button("⬇️", key=f"dl_all_{file['filename']}", help="Download"):
+                                data = download_file(st.session_state.username, file['filename'])
+                                if data:
+                                    st.download_button("Download", data, file['filename'], key=f"save_all_{file['filename']}")
+                        with col3:
+                            if st.button("🔗", key=f"share_all_{file['filename']}", help="Share"):
+                                st.session_state[f"share_modal_{file['filename']}"] = True
+                        with col4:
+                            if st.button("🗑️", key=f"del_all_{file['filename']}", help="Delete"):
+                                delete_file(st.session_state.username, file['filename'])
+                                st.rerun()
+                        
+                        if st.session_state.get(f"share_modal_{file['filename']}", False):
+                            st.divider()
+                            st.write("**🔗 Share Options**")
+                            tab1, tab2 = st.tabs(["👤 User", "📧 Email"])
                             
-                            if st.session_state.get(f"show_email_share_{file['filename']}", False):
-                                st.divider()
-                                st.write("**📧 Share via Email**")
-                                share_email = st.text_input("Recipient email", key=f"email_{file['filename']}")
-                                share_msg = st.text_area("Message", key=f"msg_{file['filename']}", height=80)
-                                col_a, col_b = st.columns(2)
-                                with col_a:
-                                    if st.button("📨 Send", key=f"send_{file['filename']}"):
-                                        st.success(f"✅ Share link sent to {share_email}!\n\n📧 Share Link: https://clouddrive-pro.streamlit.app/shared?file={file['filename']}&from={st.session_state.username}")
-                                        log_activity(st.session_state.username, "EMAIL_SHARE", f"Shared {file['filename']} via email to {share_email}")
-                                        add_notification(share_email, "email_share", "File Shared", f"{st.session_state.username} shared '{file['filename']}' with you")
-                                with col_b:
-                                    if st.button("🔗 Copy Link", key=f"copy_{file['filename']}"):
+                            with tab1:
+                                share_user = st.text_input("Username", key=f"su_{file['filename']}")
+                                if st.button("Share", key=f"sbtn_{file['filename']}"):
+                                    if share_user:
+                                        share_file(st.session_state.username, file['filename'], share_user)
+                                        st.success("✅ Shared with user!")
+                            
+                            with tab2:
+                                share_email = st.text_input("Email", key=f"se_{file['filename']}")
+                                share_msg = st.text_area("Message", key=f"sm_{file['filename']}", height=60)
+                                if st.button("📨 Send", key=f"sebtn_{file['filename']}"):
+                                    if share_email:
                                         share_link = f"https://clouddrive-pro.streamlit.app/shared?file={file['filename']}&from={st.session_state.username}"
+                                        st.success(f"✅ Email sent to {share_email}!")
                                         st.code(share_link, language="text")
-                except:
-                    st.info("Unable to display uploaded files")
+                                        log_activity(st.session_state.username, "EMAIL_SHARE", f"Shared via email to {share_email}")
+            else:
+                st.info("📭 No files uploaded yet")
+        except Exception as e:
+            st.info("📭 No files uploaded yet")
     
     elif page == "🔗 Shared":
         col1, col2 = st.columns(2)
