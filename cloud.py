@@ -135,38 +135,52 @@ def upload_file(username, file_data, filename):
     try:
         user_path = get_user_storage_path(username)
         
-        # Get current files to find next version
-        existing_versions = []
-        for file in user_path.glob(f"{filename}.v*"):
-            try:
-                version_num = int(file.stem.split('v')[-1])
-                existing_versions.append(version_num)
-            except:
-                pass
+        # Ensure directory exists
+        user_path.mkdir(parents=True, exist_ok=True)
         
-        next_version = max(existing_versions) + 1 if existing_versions else 1
-        file_path = user_path / f"{filename}.v{next_version}"
+        # Find next version number
+        next_version = 1
+        for file in user_path.iterdir():
+            if file.is_file() and filename in file.name and '.v' in file.name:
+                try:
+                    ver = int(file.name.rsplit('.v', 1)[1])
+                    next_version = max(next_version, ver + 1)
+                except:
+                    pass
+        
+        # Create versioned filename
+        versioned_filename = f"{filename}.v{next_version}"
+        file_path = user_path / versioned_filename
         
         # Write file
         with open(file_path, 'wb') as f:
             f.write(file_data)
         
-        # Verify file was written
+        # Force flush to disk
+        import os
+        os.fsync(f.fileno()) if hasattr(f, 'fileno') else None
+        
+        # Verify file exists and has content
         if not file_path.exists():
             return None
         
-        # Update user storage
+        if file_path.stat().st_size == 0:
+            file_path.unlink()
+            return None
+        
+        # Update storage stats
         users = load_json(USERS_FILE)
         if username in users:
             total_size = 0
-            for f in user_path.glob("*"):
+            for f in user_path.iterdir():
                 if f.is_file():
                     total_size += f.stat().st_size
             users[username]["storage_used"] = total_size
             save_json(USERS_FILE, users)
         
         log_activity(username, "UPLOAD", f"Uploaded {filename}")
-        add_notification(username, "upload", "Upload", f"{filename} uploaded")
+        add_notification(username, "upload", "Upload", f"{filename} uploaded (v{next_version})")
+        
         return next_version
     except Exception as e:
         return None
@@ -192,20 +206,45 @@ def list_files(username):
         users = load_json(USERS_FILE)
         favorites = users.get(username, {}).get("favorites", [])
         
-        for file in user_path.glob("*.v*"):
+        # Debug: Check if path exists and list contents
+        if not user_path.exists():
+            return []
+        
+        # Get all files in directory
+        all_items = list(user_path.iterdir())
+        
+        for file in all_items:
             try:
-                parts = file.stem.rsplit('.v', 1)
-                if len(parts) == 2:
-                    base_name, version = parts
-                    version = int(version)
-                    if base_name not in files or version > files[base_name]["version"]:
-                        files[base_name] = {"filename": base_name, "version": version, "path": file,
-                                           "size": file.stat().st_size, "modified": datetime.fromtimestamp(file.stat().st_mtime).isoformat(),
-                                           "icon": get_file_icon(base_name), "is_favorite": base_name in favorites}
-            except:
+                if not file.is_file():
+                    continue
+                
+                filename = file.name
+                
+                # Check if it matches version pattern
+                if '.v' in filename:
+                    parts = filename.rsplit('.v', 1)
+                    if len(parts) == 2:
+                        base_name, version_str = parts
+                        try:
+                            version = int(version_str)
+                            
+                            if base_name not in files or version > files[base_name]["version"]:
+                                files[base_name] = {
+                                    "filename": base_name,
+                                    "version": version,
+                                    "path": file,
+                                    "size": file.stat().st_size,
+                                    "modified": datetime.fromtimestamp(file.stat().st_mtime).isoformat(),
+                                    "icon": get_file_icon(base_name),
+                                    "is_favorite": base_name in favorites
+                                }
+                        except ValueError:
+                            continue
+            except Exception as e:
                 continue
+        
         return sorted(files.values(), key=lambda x: x["modified"], reverse=True)
-    except:
+    except Exception as e:
         return []
 
 def download_file(username, filename, version=None):
@@ -615,6 +654,8 @@ else:
                 
                 try:
                     success_count = 0
+                    failed_files = []
+                    
                     for idx, file in enumerate(uploaded_files):
                         progress_placeholder.progress((idx / len(uploaded_files)))
                         status_placeholder.write(f"⏳ Uploading: {file.name}...")
@@ -625,19 +666,31 @@ else:
                             success_count += 1
                             status_placeholder.write(f"✅ {file.name} uploaded (v{result})")
                         else:
-                            status_placeholder.write(f"❌ Failed to upload {file.name}")
+                            failed_files.append(file.name)
+                            status_placeholder.write(f"❌ Failed: {file.name}")
                     
                     progress_placeholder.progress(1.0)
                     
-                    if success_count == len(uploaded_files):
+                    if success_count > 0:
                         status_placeholder.empty()
-                        st.success(f"✅ All {success_count} file(s) uploaded successfully!")
+                        st.success(f"✅ {success_count} file(s) uploaded successfully!")
                         st.balloons()
+                        
+                        # Force refresh file list
                         import time
+                        time.sleep(0.5)
+                        
+                        # Show files immediately
+                        st.subheader("✅ Uploaded Files")
+                        uploaded_files_list = list_files(st.session_state.username)
+                        if uploaded_files_list:
+                            for f in uploaded_files_list[:success_count]:
+                                st.success(f"📄 {f['filename']} - {f['size']/1024:.1f}KB (v{f['version']})")
+                        
                         time.sleep(1)
                         st.rerun()
                     else:
-                        st.warning(f"⚠️ {success_count}/{len(uploaded_files)} files uploaded")
+                        st.error(f"❌ Failed to upload files: {', '.join(failed_files)}")
                 except Exception as e:
                     st.error(f"❌ Upload error: {str(e)}")
         
