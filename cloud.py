@@ -577,4 +577,5 @@ else:
             st.checkbox("Notifications", value=True)
             st.checkbox("2FA")
             if st.button("Save", use_container_width=True):
-                st.success("✅ Saved!"
+                st.success("✅ Saved!")   
+
