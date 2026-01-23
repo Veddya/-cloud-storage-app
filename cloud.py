@@ -3,16 +3,18 @@ import os
 import json
 import hashlib
 import secrets
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 import uuid
 import mimetypes
 from io import BytesIO
 import pandas as pd
+from collections import defaultdict
 
 # ============== PAGE CONFIG ==============
 st.set_page_config(
-    page_title="CloudDrive - Secure Cloud Storage",
+    page_title="CloudDrive Pro - Enterprise Cloud Storage",
     page_icon="☁️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -40,6 +42,12 @@ st.markdown("""
         border-left: 4px solid #667eea;
         margin-bottom: 10px;
     }
+    .success-box {
+        background-color: #d4edda;
+        padding: 12px;
+        border-radius: 6px;
+        border: 1px solid #c3e6cb;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -50,10 +58,15 @@ USERS_FILE = STORAGE_DIR / "users.json"
 SHARES_FILE = STORAGE_DIR / "shares.json"
 RECYCLE_BIN_FILE = STORAGE_DIR / "recycle_bin.json"
 ACTIVITY_LOG_FILE = STORAGE_DIR / "activity_log.json"
+FOLDERS_FILE = STORAGE_DIR / "folders.json"
+COMMENTS_FILE = STORAGE_DIR / "comments.json"
+TAGS_FILE = STORAGE_DIR / "tags.json"
+ANALYTICS_FILE = STORAGE_DIR / "analytics.json"
+TEAMS_FILE = STORAGE_DIR / "teams.json"
+NOTIFICATIONS_FILE = STORAGE_DIR / "notifications.json"
 
 STORAGE_QUOTA = 5 * 1024 * 1024 * 1024  # 5GB per user
 
-# Create directories
 for dir_path in [STORAGE_DIR, METADATA_DIR]:
     dir_path.mkdir(exist_ok=True)
 
@@ -61,13 +74,10 @@ for dir_path in [STORAGE_DIR, METADATA_DIR]:
 
 def init_files():
     """Initialize storage files"""
-    for file_path in [USERS_FILE, SHARES_FILE, RECYCLE_BIN_FILE, ACTIVITY_LOG_FILE]:
+    for file_path in [USERS_FILE, SHARES_FILE, RECYCLE_BIN_FILE, ACTIVITY_LOG_FILE, 
+                      FOLDERS_FILE, COMMENTS_FILE, TAGS_FILE, ANALYTICS_FILE, TEAMS_FILE, NOTIFICATIONS_FILE]:
         if not file_path.exists():
             file_path.write_text(json.dumps({}))
-
-def hash_password(password: str) -> str:
-    """Hash password"""
-    return hashlib.sha256(password.encode()).hexdigest()
 
 def load_json(file_path: Path) -> dict:
     """Load JSON file"""
@@ -79,6 +89,22 @@ def load_json(file_path: Path) -> dict:
 def save_json(file_path: Path, data: dict):
     """Save JSON file"""
     file_path.write_text(json.dumps(data, indent=2))
+
+def is_valid_email(email: str) -> bool:
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def send_verification_email(email: str, username: str) -> str:
+    """Simulate email verification"""
+    verification_code = secrets.token_hex(3).upper()
+    # In production, use smtp/SendGrid
+    return verification_code
+
+def send_notification_email(email: str, subject: str, message: str):
+    """Send email notification"""
+    # In production, use smtp/SendGrid
+    pass
 
 def log_activity(username: str, action: str, details: str):
     """Log user activity"""
@@ -92,35 +118,80 @@ def log_activity(username: str, action: str, details: str):
     }
     save_json(ACTIVITY_LOG_FILE, logs)
 
-def register_user(username: str, email: str, password: str) -> bool:
+def add_notification(username: str, notification_type: str, title: str, message: str):
+    """Add notification"""
+    notifs = load_json(NOTIFICATIONS_FILE)
+    notif_id = str(uuid.uuid4())
+    notifs[notif_id] = {
+        "username": username,
+        "type": notification_type,
+        "title": title,
+        "message": message,
+        "timestamp": datetime.now().isoformat(),
+        "read": False
+    }
+    save_json(NOTIFICATIONS_FILE, notifs)
+
+def record_analytics(username: str, metric: str, value: any):
+    """Record analytics"""
+    analytics = load_json(ANALYTICS_FILE)
+    if username not in analytics:
+        analytics[username] = {}
+    analytics[username][metric] = {
+        "value": value,
+        "timestamp": datetime.now().isoformat()
+    }
+    save_json(ANALYTICS_FILE, analytics)
+
+def register_user(username: str, email: str, password: str) -> tuple:
     """Register new user"""
     users = load_json(USERS_FILE)
+    
     if username in users:
-        return False
+        return False, "Username already exists"
+    
+    if not is_valid_email(email):
+        return False, "Invalid email format"
+    
+    if len(password) < 6:
+        return False, "Password must be 6+ characters"
+    
+    # Send verification email
+    verification_code = send_verification_email(email, username)
     
     users[username] = {
         "email": email,
-        "password": hash_password(password),
+        "password": hashlib.sha256(password.encode()).hexdigest(),
         "created": datetime.now().isoformat(),
         "storage_used": 0,
         "plan": "free",
+        "verified": False,
+        "verification_code": verification_code,
         "profile_pic": None,
+        "bio": "",
         "settings": {
             "theme": "light",
             "notifications": True,
-            "two_factor": False
-        }
+            "two_factor": False,
+            "email_shares": True,
+            "email_comments": True
+        },
+        "favorites": [],
+        "tags": {}
     }
+    
     save_json(USERS_FILE, users)
     log_activity(username, "REGISTER", "New account created")
-    return True
+    record_analytics(username, "account_created", 1)
+    
+    return True, verification_code
 
 def authenticate_user(username: str, password: str) -> bool:
     """Authenticate user"""
     users = load_json(USERS_FILE)
     if username not in users:
         return False
-    return users[username]["password"] == hash_password(password)
+    return users[username]["password"] == hashlib.sha256(password.encode()).hexdigest()
 
 def get_user_storage_path(username: str) -> Path:
     """Get user storage path"""
@@ -154,11 +225,33 @@ def get_file_icon(filename: str) -> str:
     }
     return icons.get(ext, '📁')
 
-def upload_file(username: str, file_data, filename: str, file_type: str = None):
+def create_folder(username: str, folder_name: str, parent_id: str = "root") -> str:
+    """Create folder"""
+    folders = load_json(FOLDERS_FILE)
+    folder_id = str(uuid.uuid4())
+    
+    folders[folder_id] = {
+        "username": username,
+        "name": folder_name,
+        "parent_id": parent_id,
+        "created": datetime.now().isoformat(),
+        "color": "#667eea"
+    }
+    
+    save_json(FOLDERS_FILE, folders)
+    log_activity(username, "CREATE_FOLDER", f"Created folder: {folder_name}")
+    return folder_id
+
+def get_user_folders(username: str) -> list:
+    """Get user folders"""
+    folders = load_json(FOLDERS_FILE)
+    user_folders = [f for f in folders.values() if f["username"] == username]
+    return sorted(user_folders, key=lambda x: x["created"], reverse=True)
+
+def upload_file(username: str, file_data, filename: str, folder_id: str = "root"):
     """Upload file with versioning"""
     user_path = get_user_storage_path(username)
     
-    # Get next version
     versions = get_file_versions(username, filename)
     next_version = 1 if not versions else int(versions[0]["version"]) + 1
     
@@ -168,7 +261,6 @@ def upload_file(username: str, file_data, filename: str, file_type: str = None):
     with open(file_path, 'wb') as f:
         f.write(file_data)
     
-    # Update storage
     users = load_json(USERS_FILE)
     users[username]["storage_used"] = sum(
         f.stat().st_size for f in user_path.glob("*") if f.is_file()
@@ -176,6 +268,9 @@ def upload_file(username: str, file_data, filename: str, file_type: str = None):
     save_json(USERS_FILE, users)
     
     log_activity(username, "UPLOAD", f"Uploaded {filename}")
+    record_analytics(username, "files_uploaded", len(list_files(username)))
+    add_notification(username, "upload", "File Uploaded", f"{filename} uploaded successfully")
+    
     return next_version
 
 def get_file_versions(username: str, filename: str) -> list:
@@ -198,6 +293,9 @@ def list_files(username: str) -> list:
     """List latest file versions"""
     user_path = get_user_storage_path(username)
     files = {}
+    users = load_json(USERS_FILE)
+    user_data = users.get(username, {})
+    favorites = user_data.get("favorites", [])
     
     for file in user_path.glob("*.v*"):
         base_name = file.stem.rsplit('.v', 1)[0]
@@ -210,7 +308,8 @@ def list_files(username: str) -> list:
                 "path": file,
                 "size": file.stat().st_size,
                 "modified": datetime.fromtimestamp(file.stat().st_mtime).isoformat(),
-                "icon": get_file_icon(base_name)
+                "icon": get_file_icon(base_name),
+                "is_favorite": base_name in favorites
             }
     
     return sorted(files.values(), key=lambda x: x["modified"], reverse=True)
@@ -249,6 +348,7 @@ def delete_file(username: str, filename: str):
         file.unlink()
     
     log_activity(username, "DELETE", f"Deleted {filename}")
+    add_notification(username, "delete", "File Deleted", f"{filename} moved to trash")
 
 def permanently_delete_file(username: str, filename: str):
     """Permanently delete file"""
@@ -268,6 +368,35 @@ def restore_from_trash(username: str, trash_id: str):
     log_activity(username, "RESTORE", "Restored file from trash")
     return True
 
+def toggle_favorite(username: str, filename: str):
+    """Toggle favorite status"""
+    users = load_json(USERS_FILE)
+    if filename in users[username]["favorites"]:
+        users[username]["favorites"].remove(filename)
+    else:
+        users[username]["favorites"].append(filename)
+    save_json(USERS_FILE, users)
+
+def add_tag(username: str, filename: str, tag: str):
+    """Add tag to file"""
+    tags = load_json(TAGS_FILE)
+    tag_id = str(uuid.uuid4())
+    
+    tags[tag_id] = {
+        "username": username,
+        "filename": filename,
+        "tag": tag,
+        "created": datetime.now().isoformat()
+    }
+    save_json(TAGS_FILE, tags)
+
+def get_tags(username: str, filename: str) -> list:
+    """Get file tags"""
+    tags = load_json(TAGS_FILE)
+    file_tags = [t["tag"] for t in tags.values() 
+                 if t["username"] == username and t["filename"] == filename]
+    return file_tags
+
 def share_file(username: str, filename: str, share_with: str, permission: str = "view") -> str:
     """Share file"""
     shares = load_json(SHARES_FILE)
@@ -285,6 +414,14 @@ def share_file(username: str, filename: str, share_with: str, permission: str = 
     
     save_json(SHARES_FILE, shares)
     log_activity(username, "SHARE", f"Shared {filename} with {share_with}")
+    
+    users = load_json(USERS_FILE)
+    if share_with in users:
+        add_notification(share_with, "share", "File Shared", f"{username} shared {filename} with you")
+        if users[share_with]["settings"].get("email_shares"):
+            send_notification_email(users[share_with]["email"], "File Shared", 
+                                   f"{username} shared {filename} with you")
+    
     return share_id
 
 def get_shared_files(username: str) -> list:
@@ -325,6 +462,61 @@ def get_shared_by_me(username: str) -> list:
     
     return shared
 
+def add_comment(username: str, filename: str, comment: str):
+    """Add comment to file"""
+    comments = load_json(COMMENTS_FILE)
+    comment_id = str(uuid.uuid4())
+    
+    comments[comment_id] = {
+        "username": username,
+        "filename": filename,
+        "comment": comment,
+        "created": datetime.now().isoformat(),
+        "replies": []
+    }
+    
+    save_json(COMMENTS_FILE, comments)
+    log_activity(username, "COMMENT", f"Commented on {filename}")
+
+def get_comments(filename: str) -> list:
+    """Get file comments"""
+    comments = load_json(COMMENTS_FILE)
+    file_comments = [c for c in comments.values() if c["filename"] == filename]
+    return sorted(file_comments, key=lambda x: x["created"], reverse=True)
+
+def create_team(username: str, team_name: str, description: str = "") -> str:
+    """Create team"""
+    teams = load_json(TEAMS_FILE)
+    team_id = str(uuid.uuid4())
+    
+    teams[team_id] = {
+        "owner": username,
+        "name": team_name,
+        "description": description,
+        "created": datetime.now().isoformat(),
+        "members": [username],
+        "storage_used": 0
+    }
+    
+    save_json(TEAMS_FILE, teams)
+    log_activity(username, "CREATE_TEAM", f"Created team: {team_name}")
+    return team_id
+
+def get_user_teams(username: str) -> list:
+    """Get user teams"""
+    teams = load_json(TEAMS_FILE)
+    user_teams = [t for t in teams.values() if username in t["members"]]
+    return user_teams
+
+def add_team_member(team_id: str, member_username: str):
+    """Add member to team"""
+    teams = load_json(TEAMS_FILE)
+    if team_id in teams:
+        teams[team_id]["members"].append(member_username)
+        save_json(TEAMS_FILE, teams)
+        return True
+    return False
+
 def get_storage_usage(username: str) -> dict:
     """Get storage usage"""
     users = load_json(USERS_FILE)
@@ -342,23 +534,45 @@ def search_files(username: str, query: str) -> list:
     files = list_files(username)
     return [f for f in files if query.lower() in f['filename'].lower()]
 
-def get_activity_log(username: str, limit: int = 20) -> list:
+def get_activity_log(username: str, limit: int = 50) -> list:
     """Get user activity log"""
     logs = load_json(ACTIVITY_LOG_FILE)
-    user_logs = [
-        log for log in logs.values() 
-        if log["username"] == username
-    ]
-    return sorted(
-        user_logs, 
-        key=lambda x: x["timestamp"], 
-        reverse=True
-    )[:limit]
+    user_logs = [log for log in logs.values() if log["username"] == username]
+    return sorted(user_logs, key=lambda x: x["timestamp"], reverse=True)[:limit]
+
+def get_notifications(username: str) -> list:
+    """Get user notifications"""
+    notifs = load_json(NOTIFICATIONS_FILE)
+    user_notifs = [n for n in notifs.values() if n["username"] == username]
+    return sorted(user_notifs, key=lambda x: x["timestamp"], reverse=True)
+
+def get_analytics_dashboard(username: str) -> dict:
+    """Get analytics for user"""
+    analytics = load_json(ANALYTICS_FILE)
+    files = list_files(username)
+    logs = get_activity_log(username, 100)
+    
+    # Calculate metrics
+    file_types = defaultdict(int)
+    for file in files:
+        ext = Path(file["filename"]).suffix or "unknown"
+        file_types[ext] += 1
+    
+    actions = defaultdict(int)
+    for log in logs:
+        actions[log["action"]] += 1
+    
+    return {
+        "total_files": len(files),
+        "total_storage": get_storage_usage(username),
+        "file_types": dict(file_types),
+        "recent_actions": dict(actions),
+        "total_shared": len(get_shared_by_me(username))
+    }
 
 # ============== INITIALIZE ==============
 init_files()
 
-# Session state
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
@@ -369,19 +583,17 @@ if "auth_mode" not in st.session_state:
 # ============== MAIN APP ==============
 
 if not st.session_state.logged_in:
-    # AUTH PAGE
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("<h1 style='text-align: center; color: #667eea;'>☁️ CloudDrive</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #666;'>Secure Cloud Storage for Everyone</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #667eea;'>☁️ CloudDrive Pro</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #666;'>Enterprise Cloud Storage Solution</p>", unsafe_allow_html=True)
         
         auth_mode = st.radio("", ["Login", "Register"], horizontal=True, label_visibility="collapsed")
-        
         st.divider()
         
         if auth_mode == "Register":
-            st.subheader("Create Account")
+            st.subheader("Create Your Account")
             reg_user = st.text_input("Username", placeholder="Choose a username")
             reg_email = st.text_input("Email", placeholder="your@email.com")
             reg_pass = st.text_input("Password", type="password", placeholder="Min 6 characters")
@@ -389,17 +601,13 @@ if not st.session_state.logged_in:
             
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("📝 Create Account", use_container_width=True):
-                    if not all([reg_user, reg_email, reg_pass]):
-                        st.error("❌ All fields required")
-                    elif len(reg_pass) < 6:
-                        st.error("❌ Password must be 6+ characters")
-                    elif reg_pass != reg_pass_confirm:
-                        st.error("❌ Passwords don't match")
-                    elif register_user(reg_user, reg_email, reg_pass):
-                        st.success("✅ Account created! Login now.")
+                if st.button("📝 Create Account", use_container_width=True, type="primary"):
+                    success, message = register_user(reg_user, reg_email, reg_pass)
+                    if success:
+                        st.success(f"✅ Account created! Verification code: {message}")
+                        st.info("Check your email for verification link")
                     else:
-                        st.error("❌ Username already exists")
+                        st.error(f"❌ {message}")
         
         else:
             st.subheader("Welcome Back")
@@ -407,9 +615,7 @@ if not st.session_state.logged_in:
             login_pass = st.text_input("Password", type="password")
             
             if st.button("🔓 Login", use_container_width=True, type="primary"):
-                if not login_user or not login_pass:
-                    st.error("❌ Enter username and password")
-                elif authenticate_user(login_user, login_pass):
+                if authenticate_user(login_user, login_pass):
                     st.session_state.logged_in = True
                     st.session_state.username = login_user
                     log_activity(login_user, "LOGIN", "User logged in")
@@ -419,7 +625,6 @@ if not st.session_state.logged_in:
                     st.error("❌ Invalid credentials")
 
 else:
-    # MAIN APP
     with st.sidebar:
         st.markdown(f"<h3 style='color: white;'>👤 {st.session_state.username}</h3>", unsafe_allow_html=True)
         st.divider()
@@ -432,12 +637,13 @@ else:
         st.caption(f"{storage['used'] / (1024*1024):.1f}MB / {storage['total'] / (1024*1024*1024):.0f}GB")
         
         st.divider()
-        
         st.markdown("### 📌 Menu")
+        
         page = st.radio(
             "Navigation",
-            ["📁 My Files", "📤 Upload", "🔗 Shared with Me", "👥 Shared by Me", 
-             "🗑️ Recycle Bin", "📋 Activity Log", "⚙️ Settings"],
+            ["📁 My Files", "📂 Folders", "📤 Upload", "🔗 Shared with Me", 
+             "👥 Shared by Me", "👫 Teams", "🗑️ Recycle Bin", "📊 Analytics", 
+             "🔔 Notifications", "📋 Activity Log", "⚙️ Settings"],
             label_visibility="collapsed"
         )
         
@@ -452,22 +658,26 @@ else:
     if page == "📁 My Files":
         st.title("📁 My Files")
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Files", len(list_files(st.session_state.username)))
         with col2:
             st.metric("Storage Used", f"{storage['used'] / (1024*1024):.1f}MB")
         with col3:
-            st.metric("Storage Free", f"{storage['remaining'] / (1024*1024):.0f}MB")
+            st.metric("Storage Free", f"{storage['remaining'] / (1024*1024*1024):.2f}GB")
+        with col4:
+            st.metric("Shared", len(get_shared_by_me(st.session_state.username)))
         
         st.divider()
         
-        col1, col2 = st.columns([3, 1])
+        col1, col2, col3 = st.columns([3, 1, 1])
         with col1:
             search_query = st.text_input("🔍 Search files...", placeholder="Type filename")
         with col2:
-            sort_by = st.selectbox("Sort by", ["Modified (New)", "Modified (Old)", "Name A-Z", "Size"])
+            sort_by = st.selectbox("Sort", ["Modified (New)", "Modified (Old)", "Name A-Z", "Size"])
+        with col3:
+            view_mode = st.selectbox("View", ["List", "Grid"])
         
         files = search_files(st.session_state.username, search_query) if search_query else list_files(st.session_state.username)
         
@@ -481,19 +691,19 @@ else:
         else:
             for file in files:
                 with st.container(border=True):
-                    col1, col2, col3, col4, col5, col6 = st.columns([4, 1, 1, 1, 1, 1])
+                    col1, col2, col3, col4, col5, col6, col7, col8 = st.columns([4, 1, 1, 1, 1, 1, 1, 1])
                     
                     with col1:
                         st.markdown(f"**{file['icon']} {file['filename']}**")
+                        tags = get_tags(st.session_state.username, file['filename'])
+                        if tags:
+                            st.caption(f"Tags: {', '.join(tags)}")
                         st.caption(f"v{file['version']} | {file['size'] / 1024:.1f}KB | {file['modified'][:10]}")
                     
                     with col2:
                         if st.button("⬇️", key=f"dl_{file['filename']}", help="Download"):
                             data = download_file(st.session_state.username, file['filename'])
-                            st.download_button(
-                                "Download", data, file['filename'],
-                                key=f"save_{file['filename']}"
-                            )
+                            st.download_button("Download", data, file['filename'], key=f"save_{file['filename']}")
                     
                     with col3:
                         if st.button("📋", key=f"ver_{file['filename']}", help="Versions"):
@@ -504,10 +714,20 @@ else:
                             st.session_state[f"show_share_{file['filename']}"] = True
                     
                     with col5:
-                        if st.button("⭐", key=f"star_{file['filename']}", help="Favorite"):
-                            st.success("Added to favorites!")
+                        fav_icon = "⭐" if file['is_favorite'] else "☆"
+                        if st.button(fav_icon, key=f"star_{file['filename']}", help="Favorite"):
+                            toggle_favorite(st.session_state.username, file['filename'])
+                            st.rerun()
                     
                     with col6:
+                        if st.button("💬", key=f"comment_{file['filename']}", help="Comments"):
+                            st.session_state[f"show_comment_{file['filename']}"] = True
+                    
+                    with col7:
+                        if st.button("🏷️", key=f"tag_{file['filename']}", help="Tags"):
+                            st.session_state[f"show_tag_{file['filename']}"] = True
+                    
+                    with col8:
                         if st.button("🗑️", key=f"del_{file['filename']}", help="Delete"):
                             delete_file(st.session_state.username, file['filename'])
                             st.success("Moved to recycle bin")
@@ -517,159 +737,4 @@ else:
                     if st.session_state.get(f"show_v_{file['filename']}", False):
                         st.divider()
                         st.write("**📦 Versions:**")
-                        versions = get_file_versions(st.session_state.username, file['filename'])
-                        for v in versions:
-                            vc1, vc2 = st.columns([3, 1])
-                            with vc1:
-                                st.caption(f"v{v['version']} | {v['size']/1024:.1f}KB | {v['modified'][:10]}")
-                            with vc2:
-                                if st.button("Restore", key=f"restore_{file['filename']}_v{v['version']}"):
-                                    data = download_file(st.session_state.username, file['filename'], int(v['version']))
-                                    upload_file(st.session_state.username, data, file['filename'])
-                                    st.rerun()
-                    
-                    # Share
-                    if st.session_state.get(f"show_share_{file['filename']}", False):
-                        st.divider()
-                        st.write("**🔗 Share with:**")
-                        share_user = st.text_input("Username", key=f"share_user_{file['filename']}")
-                        share_perm = st.selectbox("Permission", ["view", "download"], key=f"perm_{file['filename']}")
-                        if st.button("Share", key=f"share_btn_{file['filename']}"):
-                            share_file(st.session_state.username, file['filename'], share_user, share_perm)
-                            st.success(f"✅ Shared with {share_user}!")
-                            st.session_state[f"show_share_{file['filename']}"] = False
-    
-    elif page == "📤 Upload":
-        st.title("📤 Upload Files")
-        
-        st.info(f"💾 Available storage: {storage['remaining'] / (1024*1024*1024):.2f}GB")
-        
-        uploaded_files = st.file_uploader("Choose files", accept_multiple_files=True)
-        
-        if uploaded_files:
-            if st.button("Upload All", type="primary", use_container_width=True):
-                for uploaded_file in uploaded_files:
-                    upload_file(st.session_state.username, uploaded_file.getvalue(), uploaded_file.name)
-                    st.success(f"✅ {uploaded_file.name}")
-                st.rerun()
-    
-    elif page == "🔗 Shared with Me":
-        st.title("🔗 Shared with Me")
-        
-        shared = get_shared_files(st.session_state.username)
-        
-        if not shared:
-            st.info("📭 No files shared with you")
-        else:
-            for item in shared:
-                with st.container(border=True):
-                    col1, col2, col3 = st.columns([4, 1, 1])
-                    
-                    with col1:
-                        st.markdown(f"**{item['icon']} {item['file']}**")
-                        st.caption(f"Shared by {item['from']} | Permission: {item['permission']}")
-                    
-                    with col2:
-                        if st.button("⬇️ Download", key=f"shared_dl_{item['share_id']}"):
-                            data = download_file(item['from'], item['file'])
-                            st.download_button("Download", data, item['file'], key=f"shared_save_{item['share_id']}")
-                    
-                    with col3:
-                        if st.button("❌ Remove", key=f"remove_{item['share_id']}"):
-                            restore_from_trash(st.session_state.username, item['share_id'])
-                            st.rerun()
-    
-    elif page == "👥 Shared by Me":
-        st.title("👥 Shared by Me")
-        
-        shared_by_me = get_shared_by_me(st.session_state.username)
-        
-        if not shared_by_me:
-            st.info("📭 You haven't shared any files")
-        else:
-            for item in shared_by_me:
-                with st.container(border=True):
-                    col1, col2 = st.columns([4, 1])
-                    
-                    with col1:
-                        st.markdown(f"**{item['icon']} {item['file']}**")
-                        st.caption(f"Shared with {item['to']} | Permission: {item['permission']}")
-                    
-                    with col2:
-                        if st.button("🔐 Revoke", key=f"revoke_{item['share_id']}"):
-                            st.success("Access revoked!")
-    
-    elif page == "🗑️ Recycle Bin":
-        st.title("🗑️ Recycle Bin")
-        
-        trash = load_json(RECYCLE_BIN_FILE)
-        user_trash = [t for t in trash.values() if t["username"] == st.session_state.username]
-        
-        if not user_trash:
-            st.info("🗑️ Recycle bin is empty")
-        else:
-            for item in user_trash:
-                with st.container(border=True):
-                    col1, col2, col3 = st.columns([4, 1, 1])
-                    
-                    with col1:
-                        st.markdown(f"**{get_file_icon(item['filename'])} {item['filename']}**")
-                        st.caption(f"Deleted: {item['deleted_at'][:10]} | Expires: {item['expires_at'][:10]}")
-                    
-                    with col2:
-                        if st.button("♻️ Restore", key=f"restore_trash_{item['filename']}"):
-                            st.success("File restored!")
-                    
-                    with col3:
-                        if st.button("🔴 Delete Permanently", key=f"perm_del_{item['filename']}"):
-                            permanently_delete_file(st.session_state.username, item['filename'])
-                            st.rerun()
-    
-    elif page == "📋 Activity Log":
-        st.title("📋 Activity Log")
-        
-        logs = get_activity_log(st.session_state.username, 50)
-        
-        if not logs:
-            st.info("No activity yet")
-        else:
-            df = pd.DataFrame([
-                {
-                    "Time": log["timestamp"][:16],
-                    "Action": log["action"],
-                    "Details": log["details"]
-                }
-                for log in logs
-            ])
-            st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    elif page == "⚙️ Settings":
-        st.title("⚙️ Settings")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Account")
-            users = load_json(USERS_FILE)
-            user = users[st.session_state.username]
-            
-            st.write(f"**Username:** {st.session_state.username}")
-            st.write(f"**Email:** {user['email']}")
-            st.write(f"**Plan:** {user['plan'].capitalize()}")
-            st.write(f"**Member since:** {user['created'][:10]}")
-            
-            if st.button("🔐 Change Password"):
-                st.info("Password change feature - coming soon!")
-            
-            if st.button("🆙 Upgrade Plan"):
-                st.info("Premium plans - coming soon!")
-        
-        with col2:
-            st.subheader("Preferences")
-            
-            theme = st.selectbox("Theme", ["Light", "Dark", "Auto"])
-            notifications = st.checkbox("Enable Notifications", value=True)
-            two_factor = st.checkbox("Two-Factor Authentication")
-            
-            if st.button("💾 Save Settings"):
-                st.success("✅ Settings saved!")
+                        versions = get_file_versions(st.session_state.
