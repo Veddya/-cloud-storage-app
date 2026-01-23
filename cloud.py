@@ -8,7 +8,7 @@ import uuid
 import pandas as pd
 from collections import defaultdict
 
-st.set_page_config(page_title="CloudDrive Pro", page_icon="☁️", layout="wide")
+st.set_page_config(page_title="CloudDrive ", page_icon="☁️", layout="wide")
 
 st.markdown("""<style>
     [data-testid="stSidebar"] { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
@@ -912,3 +912,4 @@ else:
             st.checkbox("2FA")
             if st.button("Save", use_container_width=True):
                 st.success("✅ Saved!")
+
