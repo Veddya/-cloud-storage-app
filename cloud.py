@@ -18,7 +18,7 @@ from collections import defaultdict
 
 # ============== PAGE CONFIGURATION ==============
 st.set_page_config(
-    page_title="CloudDrive Pro",
+    page_title="CloudDrive",
     page_icon="☁️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -611,3 +611,4 @@ else:
     else:
         st.title("Coming Soon")
         st.info("This feature is coming soon!")
+
