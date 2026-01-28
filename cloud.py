@@ -1,100 +1,10 @@
-elif page == "📂 Folders":
-        st.title("📂 Create & Manage Folders")
-        st.write("---")
-        
-        st.subheader("➕ Create New Folder")
-        folder_name = st.text_input("Enter folder name", placeholder="My Documents")
-        
-        if st.button("Create Folder", type="primary", use_container_width=True):
-            if folder_name:
-                create_folder(st.session_state.username, folder_name)
-                st.success(f"✅ Folder '{folder_name}' created!")
-                st.rerun()
-            else:
-                st.error("Please enter a folder name")
-        
-        st.write("---")
-        st.subheader("📁 Your Folders")
-        
-        folders = get_user_folders(st.session_state.username)
-        if folders:
-            for idx, folder in enumerate(folders):
-                with st.container(border=True):
-                    st.write(f"**📁 {folder['name']}**")
-                    st.caption(f"Created: {folder['created'][:10]}")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button(f"✏️ Rename", key=f"rename_btn_{idx}"):
-                            st.session_state[f"rename_{idx}"] = True
-                    with col2:
-                        if st.button(f"🗑️ Delete", key=f"delete_btn_{idx}"):
-                            delete_folder(st.session_state.username, folder['id'])
-                            st.rerun()
-                    
-                    if st.session_state.get(f"rename_{idx}", False):
-                        new_name = st.text_input("New name", key=f"new_name_{idx}")
-                        if st.button("Save", key=f"save_{idx}"):
-                            if new_name:
-                                rename_folder(st.session_state.username, folder['id'], new_name)
-                                st.rerun()
-        else:
-            st.info("No folders created yet")
-    
-    elif page == "👥 Teams":
-        st.title("👥 Create & Manage Teams")
-        st.write("---")
-        
-        st.subheader("➕ Create New Team")
-        team_name = st.text_input("Enter team name", placeholder="My Team")
-        
-        if st.button("Create Team", type="primary", use_container_width=True):
-            if team_name:
-                create_team(st.session_state.username, team_name)
-                st.success(f"✅ Team '{team_name}' created!")
-                st.rerun()
-            else:
-                st.error("Please enter a team name")
-        
-        st.write("---")
-        st.subheader("👥 Your Teams")
-        
-        teams = get_user_teams(st.session_state.username)
-        if teams:
-            for idx, team in enumerate(teams):
-                with st.container(border=True):
-                    st.write(f"**👥 {team['name']}**")
-                    st.caption(f"Owner: {team['owner']} | Members: {len(team['members'])}")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button(f"👤 Members", key=f"members_btn_{idx}"):
-                            st.session_state[f"show_members_{idx}"] = True
-                    with col2:
-                        if team['owner'] == st.session_state.username:
-                            if st.button(f"🗑️ Delete", key=f"delete_team_btn_{idx}"):
-                                delete_team(st.session_state.username, team['id'])
-                                st.rerun()
-                    
-                    if st.session_state.get(f"show_members_{idx}", False):
-                        st.write("**Members:**")
-                        for member in team['members']:
-                            st.write(f"  • {member}")
-                        
-                        if team['owner'] == st.session_state.username:
-                            st.write("---")
-                            new_member = st.text_input("Add member", key=f"member_{idx}")
-                            if st.button("Add", key=f"add_member_{idx}"):
-                                if new_member:
-                                    add_team_member(st.session_state.username, team['id'], new_member)
-                                    st.rerun()
-        else:
-            st.info("No teams created yet")"""
+"""
 CloudDrive Pro - Complete Enterprise Cloud Storage Application
-Full working code with all imports and dependencies
+Full working code with all features and imports
+Run: streamlit run app.py
 """
 
-# ============== ALL IMPORTS & LIBRARIES ==============
+# ============== ALL IMPORTS ==============
 import streamlit as st
 import json
 import hashlib
@@ -107,7 +17,7 @@ import uuid
 import pandas as pd
 from collections import defaultdict
 
-# ============== PAGE CONFIGURATION ==============
+# ============== PAGE CONFIG ==============
 st.set_page_config(
     page_title="CloudDrive Pro",
     page_icon="☁️",
@@ -145,26 +55,31 @@ STORAGE_QUOTA = 5 * 1024 * 1024 * 1024
 # ============== CORE FUNCTIONS ==============
 
 def init_files():
+    """Initialize all JSON files"""
     for f in [USERS_FILE, SHARES_FILE, RECYCLE_BIN_FILE, ACTIVITY_LOG_FILE, FOLDERS_FILE, COMMENTS_FILE, TAGS_FILE, TEAMS_FILE, NOTIFICATIONS_FILE, SESSION_FILE]:
         if not f.exists():
             f.write_text(json.dumps({}))
 
 def load_json(path):
+    """Load JSON safely"""
     try:
         return json.loads(path.read_text())
     except:
         return {}
 
 def save_json(path, data):
+    """Save JSON safely"""
     try:
         path.write_text(json.dumps(data, indent=2))
     except:
         pass
 
 def is_valid_email(email):
+    """Validate email"""
     return re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email) is not None
 
 def save_session(username, remember_me=False):
+    """Save session"""
     try:
         sessions = load_json(SESSION_FILE)
         session_id = str(uuid.uuid4())
@@ -180,6 +95,7 @@ def save_session(username, remember_me=False):
         return None
 
 def get_remember_me_session():
+    """Get remembered session"""
     try:
         sessions = load_json(SESSION_FILE)
         for session_id, session in sessions.items():
@@ -192,6 +108,7 @@ def get_remember_me_session():
         return None
 
 def log_activity(username, action, details):
+    """Log activity"""
     try:
         logs = load_json(ACTIVITY_LOG_FILE)
         logs[str(uuid.uuid4())] = {"username": username, "action": action, "details": details, "timestamp": datetime.now().isoformat()}
@@ -200,6 +117,7 @@ def log_activity(username, action, details):
         pass
 
 def add_notification(username, notif_type, title, message):
+    """Add notification"""
     try:
         notifs = load_json(NOTIFICATIONS_FILE)
         notifs[str(uuid.uuid4())] = {"username": username, "type": notif_type, "title": title, "message": message, "timestamp": datetime.now().isoformat(), "read": False}
@@ -208,6 +126,7 @@ def add_notification(username, notif_type, title, message):
         pass
 
 def register_user(username, email, password):
+    """Register user"""
     try:
         users = load_json(USERS_FILE)
         if username in users:
@@ -224,6 +143,7 @@ def register_user(username, email, password):
         return False, "Error"
 
 def authenticate_user(username, password):
+    """Authenticate user"""
     try:
         users = load_json(USERS_FILE)
         if username not in users:
@@ -233,6 +153,7 @@ def authenticate_user(username, password):
         return False
 
 def get_user_storage_path(username):
+    """Get user storage path"""
     try:
         path = STORAGE_DIR / username
         path.mkdir(exist_ok=True)
@@ -241,11 +162,120 @@ def get_user_storage_path(username):
         return STORAGE_DIR
 
 def get_file_icon(filename):
+    """Get file icon"""
     ext = Path(filename).suffix.lower()
     icons = {'.pdf': '📄', '.doc': '📝', '.docx': '📝', '.xls': '📊', '.xlsx': '📊', '.ppt': '📑', '.pptx': '📑', '.jpg': '🖼️', '.jpeg': '🖼️', '.png': '🖼️', '.gif': '🖼️', '.mp4': '🎥', '.avi': '🎥', '.mp3': '🎵', '.wav': '🎵', '.zip': '📦', '.rar': '📦', '.txt': '📄', '.csv': '📊'}
     return icons.get(ext, '📁')
 
+def create_folder(username, folder_name):
+    """Create folder"""
+    try:
+        folders = load_json(FOLDERS_FILE)
+        folder_id = str(uuid.uuid4())
+        folders[folder_id] = {"id": folder_id, "username": username, "name": folder_name, "created": datetime.now().isoformat(), "file_count": 0}
+        save_json(FOLDERS_FILE, folders)
+        log_activity(username, "CREATE_FOLDER", f"Created: {folder_name}")
+        return folder_id
+    except:
+        return None
+
+def get_user_folders(username):
+    """Get user folders"""
+    try:
+        folders = load_json(FOLDERS_FILE)
+        return [f for f in folders.values() if f.get("username") == username]
+    except:
+        return []
+
+def delete_folder(username, folder_id):
+    """Delete folder"""
+    try:
+        folders = load_json(FOLDERS_FILE)
+        if folder_id in folders and folders[folder_id].get("username") == username:
+            del folders[folder_id]
+            save_json(FOLDERS_FILE, folders)
+            log_activity(username, "DELETE_FOLDER", "Deleted folder")
+            return True
+    except:
+        pass
+    return False
+
+def rename_folder(username, folder_id, new_name):
+    """Rename folder"""
+    try:
+        folders = load_json(FOLDERS_FILE)
+        if folder_id in folders and folders[folder_id].get("username") == username:
+            folders[folder_id]["name"] = new_name
+            save_json(FOLDERS_FILE, folders)
+            log_activity(username, "RENAME_FOLDER", f"Renamed to {new_name}")
+            return True
+    except:
+        pass
+    return False
+
+def create_team(username, team_name):
+    """Create team"""
+    try:
+        teams = load_json(TEAMS_FILE)
+        team_id = str(uuid.uuid4())
+        teams[team_id] = {"id": team_id, "owner": username, "name": team_name, "created": datetime.now().isoformat(), "members": [username]}
+        save_json(TEAMS_FILE, teams)
+        log_activity(username, "CREATE_TEAM", f"Created: {team_name}")
+        return team_id
+    except:
+        return None
+
+def get_user_teams(username):
+    """Get user teams"""
+    try:
+        teams = load_json(TEAMS_FILE)
+        return [t for t in teams.values() if username in t.get("members", [])]
+    except:
+        return []
+
+def add_team_member(username, team_id, member_username):
+    """Add team member"""
+    try:
+        teams = load_json(TEAMS_FILE)
+        if team_id in teams and teams[team_id].get("owner") == username:
+            if member_username not in teams[team_id]["members"]:
+                teams[team_id]["members"].append(member_username)
+                save_json(TEAMS_FILE, teams)
+                log_activity(username, "ADD_TEAM_MEMBER", f"Added {member_username}")
+                return True
+    except:
+        pass
+    return False
+
+def remove_team_member(username, team_id, member_username):
+    """Remove team member"""
+    try:
+        teams = load_json(TEAMS_FILE)
+        if team_id in teams and teams[team_id].get("owner") == username:
+            if member_username in teams[team_id]["members"] and member_username != username:
+                teams[team_id]["members"].remove(member_username)
+                save_json(TEAMS_FILE, teams)
+                log_activity(username, "REMOVE_TEAM_MEMBER", f"Removed {member_username}")
+                return True
+    except:
+        pass
+    return False
+
+def delete_team(username, team_id):
+    """Delete team"""
+    try:
+        teams = load_json(TEAMS_FILE)
+        if team_id in teams and teams[team_id].get("owner") == username:
+            del teams[team_id]
+            save_json(TEAMS_FILE, teams)
+            log_activity(username, "DELETE_TEAM", "Deleted team")
+            return True
+    except:
+        pass
+    return False
+
 def upload_file(username, file_data, filename):
+    """Upload file"""
     try:
         user_path = get_user_storage_path(username)
         user_path.mkdir(parents=True, exist_ok=True)
@@ -277,6 +307,7 @@ def upload_file(username, file_data, filename):
         return None
 
 def get_file_versions(username, filename):
+    """Get file versions"""
     try:
         user_path = get_user_storage_path(username)
         versions = []
@@ -294,6 +325,7 @@ def get_file_versions(username, filename):
         return []
 
 def list_files(username):
+    """List files"""
     try:
         user_path = get_user_storage_path(username)
         files = {}
@@ -320,6 +352,7 @@ def list_files(username):
         return []
 
 def download_file(username, filename, version=None):
+    """Download file"""
     try:
         user_path = get_user_storage_path(username)
         if version:
@@ -334,6 +367,7 @@ def download_file(username, filename, version=None):
         return None
 
 def delete_file(username, filename):
+    """Delete file"""
     try:
         trash = load_json(RECYCLE_BIN_FILE)
         trash[str(uuid.uuid4())] = {"username": username, "filename": filename, "deleted_at": datetime.now().isoformat(), "expires_at": (datetime.now() + timedelta(days=30)).isoformat()}
@@ -346,6 +380,7 @@ def delete_file(username, filename):
         pass
 
 def toggle_favorite(username, filename):
+    """Toggle favorite"""
     try:
         users = load_json(USERS_FILE)
         if username in users:
@@ -358,6 +393,7 @@ def toggle_favorite(username, filename):
         pass
 
 def add_tag(username, filename, tag):
+    """Add tag"""
     try:
         tags = load_json(TAGS_FILE)
         tags[str(uuid.uuid4())] = {"username": username, "filename": filename, "tag": tag, "created": datetime.now().isoformat()}
@@ -366,75 +402,15 @@ def add_tag(username, filename, tag):
         pass
 
 def get_tags(username, filename):
+    """Get tags"""
     try:
         tags = load_json(TAGS_FILE)
         return [t["tag"] for t in tags.values() if t.get("username") == username and t.get("filename") == filename]
     except:
         return []
 
-def create_team(username, team_name):
-    try:
-        teams = load_json(TEAMS_FILE)
-        team_id = str(uuid.uuid4())
-        teams[team_id] = {
-            "id": team_id,
-            "owner": username,
-            "name": team_name,
-            "created": datetime.now().isoformat(),
-            "members": [username]
-        }
-        save_json(TEAMS_FILE, teams)
-        log_activity(username, "CREATE_TEAM", f"Created team: {team_name}")
-        return team_id
-    except:
-        return None
-
-def get_user_teams(username):
-    try:
-        teams = load_json(TEAMS_FILE)
-        return [t for t in teams.values() if username in t.get("members", [])]
-    except:
-        return []
-
-def add_team_member(username, team_id, member_username):
-    try:
-        teams = load_json(TEAMS_FILE)
-        if team_id in teams and teams[team_id].get("owner") == username:
-            if member_username not in teams[team_id]["members"]:
-                teams[team_id]["members"].append(member_username)
-                save_json(TEAMS_FILE, teams)
-                log_activity(username, "ADD_TEAM_MEMBER", f"Added {member_username} to team")
-                return True
-    except:
-        pass
-    return False
-
-def remove_team_member(username, team_id, member_username):
-    try:
-        teams = load_json(TEAMS_FILE)
-        if team_id in teams and teams[team_id].get("owner") == username:
-            if member_username in teams[team_id]["members"] and member_username != username:
-                teams[team_id]["members"].remove(member_username)
-                save_json(TEAMS_FILE, teams)
-                log_activity(username, "REMOVE_TEAM_MEMBER", f"Removed {member_username} from team")
-                return True
-    except:
-        pass
-    return False
-
-def delete_team(username, team_id):
-    try:
-        teams = load_json(TEAMS_FILE)
-        if team_id in teams and teams[team_id].get("owner") == username:
-            del teams[team_id]
-            save_json(TEAMS_FILE, teams)
-            log_activity(username, "DELETE_TEAM", "Deleted team")
-            return True
-    except:
-        pass
-    return False
-
 def share_file(username, filename, share_with, permission="view"):
+    """Share file"""
     try:
         shares = load_json(SHARES_FILE)
         share_id = str(uuid.uuid4())
@@ -447,6 +423,7 @@ def share_file(username, filename, share_with, permission="view"):
         return None
 
 def get_shared_files(username):
+    """Get shared files"""
     try:
         shares = load_json(SHARES_FILE)
         shared = []
@@ -460,6 +437,7 @@ def get_shared_files(username):
         return []
 
 def get_shared_by_me(username):
+    """Get shared by me"""
     try:
         shares = load_json(SHARES_FILE)
         shared = []
@@ -473,6 +451,7 @@ def get_shared_by_me(username):
         return []
 
 def get_activity_log(username, limit=50):
+    """Get activity log"""
     try:
         logs = load_json(ACTIVITY_LOG_FILE)
         user_logs = [log for log in logs.values() if log.get("username") == username]
@@ -481,6 +460,7 @@ def get_activity_log(username, limit=50):
         return []
 
 def get_notifications(username):
+    """Get notifications"""
     try:
         notifs = load_json(NOTIFICATIONS_FILE)
         user_notifs = [n for n in notifs.values() if n.get("username") == username]
@@ -489,6 +469,7 @@ def get_notifications(username):
         return []
 
 def get_storage_usage(username):
+    """Get storage usage"""
     try:
         users = load_json(USERS_FILE)
         used = users.get(username, {}).get("storage_used", 0)
@@ -497,6 +478,7 @@ def get_storage_usage(username):
         return {"used": 0, "total": STORAGE_QUOTA, "percentage": 0, "remaining": STORAGE_QUOTA}
 
 def search_files(username, query):
+    """Search files"""
     try:
         files = list_files(username)
         return [f for f in files if query.lower() in f['filename'].lower()]
@@ -644,8 +626,51 @@ else:
                             if st.button("Add", key=f"at_{file['filename']}"):
                                 add_tag(st.session_state.username, file['filename'], new_tag)
                                 st.success("✅ Tag added!")
-        except Exception as e:
+        except:
             st.error("Error loading files")
+    
+    elif page == "📂 Folders":
+        st.title("📂 Create & Manage Folders")
+        st.write("---")
+        
+        st.subheader("➕ Create New Folder")
+        folder_name = st.text_input("Enter folder name", placeholder="My Documents")
+        
+        if st.button("Create Folder", type="primary", use_container_width=True):
+            if folder_name:
+                create_folder(st.session_state.username, folder_name)
+                st.success(f"✅ Folder '{folder_name}' created!")
+                st.rerun()
+            else:
+                st.error("Please enter a folder name")
+        
+        st.write("---")
+        st.subheader("📁 Your Folders")
+        
+        folders = get_user_folders(st.session_state.username)
+        if folders:
+            for idx, folder in enumerate(folders):
+                with st.container(border=True):
+                    st.write(f"**📁 {folder['name']}**")
+                    st.caption(f"Created: {folder['created'][:10]}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"✏️ Rename", key=f"rename_btn_{idx}"):
+                            st.session_state[f"rename_{idx}"] = True
+                    with col2:
+                        if st.button(f"🗑️ Delete", key=f"delete_btn_{idx}"):
+                            delete_folder(st.session_state.username, folder['id'])
+                            st.rerun()
+                    
+                    if st.session_state.get(f"rename_{idx}", False):
+                        new_name = st.text_input("New name", key=f"new_name_{idx}")
+                        if st.button("Save", key=f"save_{idx}"):
+                            if new_name:
+                                rename_folder(st.session_state.username, folder['id'], new_name)
+                                st.rerun()
+        else:
+            st.info("No folders created yet")
     
     elif page == "📤 Upload":
         st.title("📤 Upload Files")
@@ -653,179 +678,4 @@ else:
         uploaded_files = st.file_uploader("Upload files", accept_multiple_files=True)
         if uploaded_files:
             if st.button("⬆️ Upload All", type="primary", use_container_width=True):
-                for file in uploaded_files:
-                    upload_file(st.session_state.username, file.getvalue(), file.name)
-                st.success(f"✅ Uploaded {len(uploaded_files)} file(s)!")
-                st.balloons()
-                time.sleep(1)
-                st.rerun()
-        st.divider()
-        st.subheader("📂 All Your Files")
-        try:
-            all_files = list_files(st.session_state.username)
-            if all_files:
-                for file in all_files:
-                    with st.container(border=True):
-                        c1, c2, c3 = st.columns([3, 1, 1])
-                        with c1:
-                            st.write(f"**{file['icon']} {file['filename']}**")
-                            st.caption(f"{file['size']/1024:.1f}KB | v{file['version']}")
-                        with c2:
-                            if st.button("⬇️", key=f"dl_all_{file['filename']}"):
-                                data = download_file(st.session_state.username, file['filename'])
-                                if data:
-                                    st.download_button("Download", data, file['filename'], key=f"save_all_{file['filename']}")
-                        with c3:
-                            if st.button("🗑️", key=f"del_all_{file['filename']}"):
-                                delete_file(st.session_state.username, file['filename'])
-                                st.rerun()
-            else:
-                st.info("No files uploaded")
-        except:
-            st.info("No files uploaded")
-    
-    elif page == "🔗 Shared":
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Shared with Me")
-            for item in get_shared_files(st.session_state.username):
-                with st.container(border=True):
-                    st.write(f"**{item['icon']} {item['file']}**")
-                    st.caption(f"From: {item['from']}")
-        with col2:
-            st.subheader("Shared by Me")
-            for item in get_shared_by_me(st.session_state.username):
-                with st.container(border=True):
-                    st.write(f"**{item['icon']} {item['file']}**")
-                    st.caption(f"To: {item['to']}")
-    
-    elif page == "🗑️ Trash":
-        st.title("🗑️ Recycle Bin")
-        trash = load_json(RECYCLE_BIN_FILE)
-        user_trash = [t for t in trash.values() if t.get("username") == st.session_state.username]
-        if user_trash:
-            for item in user_trash:
-                with st.container(border=True):
-                    st.write(f"**{item['filename']}**")
-        else:
-            st.info("Trash empty")
-    
-    elif page == "📊 Analytics":
-        st.title("📊 Analytics")
-        files = list_files(st.session_state.username)
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("Files", len(files))
-        with c2:
-            st.metric("Used", f"{storage['used'] / (1024*1024):.1f}MB")
-        with c3:
-            st.metric("Free", f"{storage['remaining'] / (1024*1024*1024):.2f}GB")
-        with c4:
-            st.metric("Shared", len(get_shared_by_me(st.session_state.username)))
-    
-    elif page == "🔔 Alerts":
-        st.title("🔔 Notifications")
-        notifs = get_notifications(st.session_state.username)
-        if notifs:
-            for notif in notifs[:10]:
-                with st.container(border=True):
-                    st.write(f"**{notif['title']}**")
-                    st.caption(notif['message'])
-        else:
-            st.info("No notifications")
-    
-    elif page == "📋 Activity":
-        st.title("📋 Activity Log")
-        logs = get_activity_log(st.session_state.username, 50)
-        if logs:
-            df = pd.DataFrame([{"Time": l["timestamp"][:16], "Action": l["action"], "Details": l["details"]} for l in logs])
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No activity")
-    
-    elif page == "⚙️ Settings":
-        st.title("⚙️ Settings")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Account")
-            users = load_json(USERS_FILE)
-            if st.session_state.username in users:
-                user = users[st.session_state.username]
-                st.write(f"**User**: {st.session_state.username}")
-                st.write(f"**Email**: {user.get('email', 'N/A')}")
-                st.write(f"**Plan**: {user.get('plan', 'N/A')}")
-        with col2:
-            st.subheader("Preferences")
-            st.selectbox("Theme", ["Light", "Dark"])
-            st.checkbox("Notifications", value=True)
-            if st.button("Save", use_container_width=True):
-                st.success("✅ Saved!")
-    
-    elif page == "👥 Teams":
-        st.title("👥 Teams")
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            team_name = st.text_input("Team name")
-        with col2:
-            if st.button("➕ Create", use_container_width=True, type="primary"):
-                if team_name:
-                    create_team(st.session_state.username, team_name)
-                    st.success("✅ Team created!")
-                    st.rerun()
-                else:
-                    st.error("Enter team name")
-        
-        st.divider()
-        
-        try:
-            teams = get_user_teams(st.session_state.username)
-            if teams:
-                st.subheader(f"👥 Your Teams ({len(teams)})")
-                for team in teams:
-                    with st.container(border=True):
-                        st.write(f"**👥 {team['name']}**")
-                        
-                        col1, col2, col3 = st.columns([3, 1, 1])
-                        with col1:
-                            st.caption(f"Owner: {team['owner']} | Members: {len(team['members'])} | Created: {team['created'][:10]}")
-                        with col2:
-                            if st.button("👤", key=f"members_{team['id']}", help="View members"):
-                                st.session_state[f"show_members_{team['id']}"] = True
-                        with col3:
-                            if team['owner'] == st.session_state.username:
-                                if st.button("🗑️", key=f"del_team_{team['id']}", help="Delete"):
-                                    delete_team(st.session_state.username, team['id'])
-                                    st.success("Team deleted!")
-                                    st.rerun()
-                        
-                        # Show members
-                        if st.session_state.get(f"show_members_{team['id']}", False):
-                            st.divider()
-                            st.write("**Members:**")
-                            for member in team['members']:
-                                col_m1, col_m2 = st.columns([3, 1])
-                                with col_m1:
-                                    st.caption(f"👤 {member}")
-                                with col_m2:
-                                    if team['owner'] == st.session_state.username and member != st.session_state.username:
-                                        if st.button("Remove", key=f"rem_{team['id']}_{member}"):
-                                            remove_team_member(st.session_state.username, team['id'], member)
-                                            st.success("Member removed!")
-                                            st.rerun()
-                            
-                            # Add member
-                            if team['owner'] == st.session_state.username:
-                                st.divider()
-                                new_member = st.text_input("Add member username", key=f"new_member_{team['id']}")
-                                if st.button("➕ Add Member", key=f"add_member_{team['id']}"):
-                                    if new_member:
-                                        if add_team_member(st.session_state.username, team['id'], new_member):
-                                            st.success("✅ Member added!")
-                                            st.rerun()
-                                        else:
-                                            st.error("❌ Could not add member")
-            else:
-                st.info("👥 No teams yet. Create one to collaborate!")
-        except Exception as e:
-            st.error("Error loading teams")
+                for
