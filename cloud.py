@@ -63,8 +63,10 @@ def get_remember_me_session():
         return None
 
 def is_valid_email(email):
-    return re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}import streamlit as st
-import json
+    return re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email) is not None
+
+def log_activity(username, action, details):
+    try:import json
 import hashlib
 import re
 from datetime import datetime, timedelta
@@ -1905,3 +1907,4 @@ else:
             st.checkbox("2FA")
             if st.button("Save", use_container_width=True):
                 st.success("✅ Saved!")
+
