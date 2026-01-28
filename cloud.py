@@ -1,5 +1,5 @@
 """
-CloudDrive Pro - Complete Enterprise Cloud Storage Application
+CloudDrive - Complete Enterprise Cloud Storage Application
 Full working code with all imports and dependencies
 """
 
@@ -280,6 +280,68 @@ def get_tags(username, filename):
         return [t["tag"] for t in tags.values() if t.get("username") == username and t.get("filename") == filename]
     except:
         return []
+
+def create_team(username, team_name):
+    try:
+        teams = load_json(TEAMS_FILE)
+        team_id = str(uuid.uuid4())
+        teams[team_id] = {
+            "id": team_id,
+            "owner": username,
+            "name": team_name,
+            "created": datetime.now().isoformat(),
+            "members": [username]
+        }
+        save_json(TEAMS_FILE, teams)
+        log_activity(username, "CREATE_TEAM", f"Created team: {team_name}")
+        return team_id
+    except:
+        return None
+
+def get_user_teams(username):
+    try:
+        teams = load_json(TEAMS_FILE)
+        return [t for t in teams.values() if username in t.get("members", [])]
+    except:
+        return []
+
+def add_team_member(username, team_id, member_username):
+    try:
+        teams = load_json(TEAMS_FILE)
+        if team_id in teams and teams[team_id].get("owner") == username:
+            if member_username not in teams[team_id]["members"]:
+                teams[team_id]["members"].append(member_username)
+                save_json(TEAMS_FILE, teams)
+                log_activity(username, "ADD_TEAM_MEMBER", f"Added {member_username} to team")
+                return True
+    except:
+        pass
+    return False
+
+def remove_team_member(username, team_id, member_username):
+    try:
+        teams = load_json(TEAMS_FILE)
+        if team_id in teams and teams[team_id].get("owner") == username:
+            if member_username in teams[team_id]["members"] and member_username != username:
+                teams[team_id]["members"].remove(member_username)
+                save_json(TEAMS_FILE, teams)
+                log_activity(username, "REMOVE_TEAM_MEMBER", f"Removed {member_username} from team")
+                return True
+    except:
+        pass
+    return False
+
+def delete_team(username, team_id):
+    try:
+        teams = load_json(TEAMS_FILE)
+        if team_id in teams and teams[team_id].get("owner") == username:
+            del teams[team_id]
+            save_json(TEAMS_FILE, teams)
+            log_activity(username, "DELETE_TEAM", "Deleted team")
+            return True
+    except:
+        pass
+    return False
 
 def share_file(username, filename, share_with, permission="view"):
     try:
@@ -608,7 +670,71 @@ else:
             if st.button("Save", use_container_width=True):
                 st.success("✅ Saved!")
     
-    else:
-        st.title("Coming Soon")
-        st.info("This feature is coming soon!")
-
+    elif page == "👥 Teams":
+        st.title("👥 Teams")
+        
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            team_name = st.text_input("Team name")
+        with col2:
+            if st.button("➕ Create", use_container_width=True, type="primary"):
+                if team_name:
+                    create_team(st.session_state.username, team_name)
+                    st.success("✅ Team created!")
+                    st.rerun()
+                else:
+                    st.error("Enter team name")
+        
+        st.divider()
+        
+        try:
+            teams = get_user_teams(st.session_state.username)
+            if teams:
+                st.subheader(f"👥 Your Teams ({len(teams)})")
+                for team in teams:
+                    with st.container(border=True):
+                        st.write(f"**👥 {team['name']}**")
+                        
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.caption(f"Owner: {team['owner']} | Members: {len(team['members'])} | Created: {team['created'][:10]}")
+                        with col2:
+                            if st.button("👤", key=f"members_{team['id']}", help="View members"):
+                                st.session_state[f"show_members_{team['id']}"] = True
+                        with col3:
+                            if team['owner'] == st.session_state.username:
+                                if st.button("🗑️", key=f"del_team_{team['id']}", help="Delete"):
+                                    delete_team(st.session_state.username, team['id'])
+                                    st.success("Team deleted!")
+                                    st.rerun()
+                        
+                        # Show members
+                        if st.session_state.get(f"show_members_{team['id']}", False):
+                            st.divider()
+                            st.write("**Members:**")
+                            for member in team['members']:
+                                col_m1, col_m2 = st.columns([3, 1])
+                                with col_m1:
+                                    st.caption(f"👤 {member}")
+                                with col_m2:
+                                    if team['owner'] == st.session_state.username and member != st.session_state.username:
+                                        if st.button("Remove", key=f"rem_{team['id']}_{member}"):
+                                            remove_team_member(st.session_state.username, team['id'], member)
+                                            st.success("Member removed!")
+                                            st.rerun()
+                            
+                            # Add member
+                            if team['owner'] == st.session_state.username:
+                                st.divider()
+                                new_member = st.text_input("Add member username", key=f"new_member_{team['id']}")
+                                if st.button("➕ Add Member", key=f"add_member_{team['id']}"):
+                                    if new_member:
+                                        if add_team_member(st.session_state.username, team['id'], new_member):
+                                            st.success("✅ Member added!")
+                                            st.rerun()
+                                        else:
+                                            st.error("❌ Could not add member")
+            else:
+                st.info("👥 No teams yet. Create one to collaborate!")
+        except Exception as e:
+            st.error("Error loading teams")
