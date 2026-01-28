@@ -1,5 +1,96 @@
-"""
-CloudDrive - Complete Enterprise Cloud Storage Application
+elif page == "📂 Folders":
+        st.title("📂 Create & Manage Folders")
+        st.write("---")
+        
+        st.subheader("➕ Create New Folder")
+        folder_name = st.text_input("Enter folder name", placeholder="My Documents")
+        
+        if st.button("Create Folder", type="primary", use_container_width=True):
+            if folder_name:
+                create_folder(st.session_state.username, folder_name)
+                st.success(f"✅ Folder '{folder_name}' created!")
+                st.rerun()
+            else:
+                st.error("Please enter a folder name")
+        
+        st.write("---")
+        st.subheader("📁 Your Folders")
+        
+        folders = get_user_folders(st.session_state.username)
+        if folders:
+            for idx, folder in enumerate(folders):
+                with st.container(border=True):
+                    st.write(f"**📁 {folder['name']}**")
+                    st.caption(f"Created: {folder['created'][:10]}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"✏️ Rename", key=f"rename_btn_{idx}"):
+                            st.session_state[f"rename_{idx}"] = True
+                    with col2:
+                        if st.button(f"🗑️ Delete", key=f"delete_btn_{idx}"):
+                            delete_folder(st.session_state.username, folder['id'])
+                            st.rerun()
+                    
+                    if st.session_state.get(f"rename_{idx}", False):
+                        new_name = st.text_input("New name", key=f"new_name_{idx}")
+                        if st.button("Save", key=f"save_{idx}"):
+                            if new_name:
+                                rename_folder(st.session_state.username, folder['id'], new_name)
+                                st.rerun()
+        else:
+            st.info("No folders created yet")
+    
+    elif page == "👥 Teams":
+        st.title("👥 Create & Manage Teams")
+        st.write("---")
+        
+        st.subheader("➕ Create New Team")
+        team_name = st.text_input("Enter team name", placeholder="My Team")
+        
+        if st.button("Create Team", type="primary", use_container_width=True):
+            if team_name:
+                create_team(st.session_state.username, team_name)
+                st.success(f"✅ Team '{team_name}' created!")
+                st.rerun()
+            else:
+                st.error("Please enter a team name")
+        
+        st.write("---")
+        st.subheader("👥 Your Teams")
+        
+        teams = get_user_teams(st.session_state.username)
+        if teams:
+            for idx, team in enumerate(teams):
+                with st.container(border=True):
+                    st.write(f"**👥 {team['name']}**")
+                    st.caption(f"Owner: {team['owner']} | Members: {len(team['members'])}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button(f"👤 Members", key=f"members_btn_{idx}"):
+                            st.session_state[f"show_members_{idx}"] = True
+                    with col2:
+                        if team['owner'] == st.session_state.username:
+                            if st.button(f"🗑️ Delete", key=f"delete_team_btn_{idx}"):
+                                delete_team(st.session_state.username, team['id'])
+                                st.rerun()
+                    
+                    if st.session_state.get(f"show_members_{idx}", False):
+                        st.write("**Members:**")
+                        for member in team['members']:
+                            st.write(f"  • {member}")
+                        
+                        if team['owner'] == st.session_state.username:
+                            st.write("---")
+                            new_member = st.text_input("Add member", key=f"member_{idx}")
+                            if st.button("Add", key=f"add_member_{idx}"):
+                                if new_member:
+                                    add_team_member(st.session_state.username, team['id'], new_member)
+                                    st.rerun()
+        else:
+            st.info("No teams created yet")"""
+CloudDrive Pro - Complete Enterprise Cloud Storage Application
 Full working code with all imports and dependencies
 """
 
@@ -18,7 +109,7 @@ from collections import defaultdict
 
 # ============== PAGE CONFIGURATION ==============
 st.set_page_config(
-    page_title="CloudDrive",
+    page_title="CloudDrive Pro",
     page_icon="☁️",
     layout="wide",
     initial_sidebar_state="expanded"
